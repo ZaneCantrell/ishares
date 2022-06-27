@@ -1,0 +1,73 @@
+import pandas as pd
+import json
+import requests
+import codecs
+import flatten_json
+from flatten_json import flatten
+ 
+##### 1 #####
+url = 'https://www.ishares.com/us/products/239726/ishares-core-sp-500-etf/1467271812596.ajax?tab=all&fileType=json&asOfDate=20080530'
+ 
+response = requests.get(url)
+decoded_data=codecs.decode(response.text.encode(), 'utf-8-sig')
+data = json.loads(decoded_data)
+ 
+ 
+####### 2 ########
+##### Nested JSON has to be parsed multiple times #######
+#### Since some columns didn't have column names in json, they get defaulted to index [0,1,2,3,.....]
+####### Must Be renamed to appropriate column name #########
+df = pd.json_normalize(data, record_path=[['aaData']])
+cols = [4, 5, 6, 7, 11]
+pars = df[cols]
+ 
+# These columns all had nested json data points that looks like this: display and raw
+pars4 = pd.json_normalize(pars[4])
+pars4= pars4.rename(columns = {'display': 'Market Value',
+                              'raw': 'Market Value Raw'})
+pars5 = pd.json_normalize(pars[5])
+pars5 = pars5.rename(columns = {'display': 'Weight',
+                              'raw': 'Weight Raw'})
+ 
+pars6 = pd.json_normalize(pars[6])
+ 
+ 
+pars7 = pd.json_normalize(pars[7])
+pars7 = pars7.rename(columns = {'display': 'Shares',
+                              'raw': 'Raw Shares'})
+ 
+pars11 = pd.json_normalize(pars[11])
+pars11 = pars11.rename(columns = {'display': 'Price',
+                              'raw': 'Raw Price'})
+ 
+#Parsed all double nested json columns then concat them together on the main axis
+x = pd.concat([pars4, pars5, pars6, pars7, pars11], axis = 1)
+ 
+ 
+############# 3 ######################
+ 
+# Renaming df columns to accurately name data
+df = df.rename(columns={df.columns[0]: 'Ticker', df.columns[1]: 'Share',
+                       df.columns[2]: 'Sector', df.columns[3]: 'Type',
+                       df.columns[9]: 'ISIN', df.columns[10]: 'SEDOL',
+                       df.columns[12]: 'Country', df.columns[13]: 'Exchange',
+              df.columns[14]: 'Currency', df.columns[15]: 'FX',
+                       df.columns[8]: 'CUSIP'})
+ 
+# Concat the parsed data and the original data, dropping the cols that were double nested json since they are now parsed.
+df = pd.concat([df, x], axis = 1).drop(columns = cols)
+df = df.drop(columns = [16])
+ 
+ 
+# Reading csv from url, skipping the first 9 rows to join on column
+url = 'https://www.ishares.com/us/products/239726/ishares-core-sp-500-etf/1467271812596.ajax?fileType=csv&fileName=holdings&dataType=fund&asOfDate=20080530'
+ 
+stocks = pd.read_csv(url, skiprows = 9)  
+# converting Price to string to match json string of price so they can be joined
+stocks.Price = stocks.Price.astype(str)
+ 
+ 
+#################### 4 ###################
+# Merging data of csv and parsed json on multiple columns, dropping display and raw, they are all blank rows and duplicates.
+final_df = pd.merge(stocks, df, on = ['Ticker', 'Sector', 'Currency', 'Exchange', 'Price', 'Shares']).drop(columns = [ 'display', 'raw', 'Share', 'Market Value_x'])
+print(final_df)
